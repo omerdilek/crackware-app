@@ -26,7 +26,7 @@ CrackWare'i kullanmaya başlamak için aşağıdaki adımları takip edin:
 İşletim sisteminize uygun çalıştırılabilir dosyayı indirin:
 
 * **Windows için**: `CrackWare.exe` dosyasını indirin.
-* **Linux için**: `CrackWare.appimage` dosyasını indirin.
+* **Linux için**: `CrackWare` dosyasını indirin.
 
 ---
 
