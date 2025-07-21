@@ -1,6 +1,7 @@
 package main
 
 import (
+	"embed"
 	"encoding/json"
 	"image/color"
 	"io/ioutil"
@@ -21,6 +22,11 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
+
+// Sources içeriğini dahil etmek
+//
+//go:embed sources/*
+var embeddedFiles embed.FS
 
 type Download struct {
 	Title      string   `json:"title"`
@@ -194,7 +200,7 @@ func page_discover() fyne.CanvasObject {
 func (dp *DiscoverPage) loadJSONFiles() {
 	dp.allData = []JSONData{} // Clear previous data
 
-	sourcesDir := "sources"
+	sourcesDir := "./"
 	if _, err := os.Stat(sourcesDir); os.IsNotExist(err) {
 		fmt.Printf("Error: '%s' directory not found.\n", sourcesDir)
 		return
