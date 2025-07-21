@@ -12,7 +12,8 @@ LiteGame, popüler oyunları güvenli bir şekilde ücretsiz indirmenizi sağlay
 * **Detaylı İndirme Bilgileri**: Her oyun için dosya boyutu, yükleme tarihi ve uygulama adı gibi bilgilere ulaşabilirsiniz.
 * **Hızlı İndirmeler**: Doğrudan indirme bağlantıları ile oyunlarınıza hızla ulaşın.
 ---
-
+![resim](img/image.png)
+---
 ## Kurulum
 
 CrackWare'i kullanmaya başlamak için aşağıdaki adımları takip edin:
