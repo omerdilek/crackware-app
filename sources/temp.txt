@@ -1,0 +1,491 @@
+package main
+
+import (
+	"encoding/json"
+	"sort"
+
+	"fmt"
+
+	"io/ioutil"
+
+	"os"
+
+	"path/filepath"
+
+	"time"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
+
+	"strings"
+
+	"fyne.io/fyne/v2/widget"
+)
+
+type Download struct {
+	Title string `json:"title"`
+
+	URIs []string `json:"uris"`
+
+	UploadDate string `json:"uploadDate"`
+
+	FileSize string `json:"fileSize"`
+}
+
+type JSONData struct {
+	Name string `json:"name"`
+
+	Downloads []Download `json:"downloads"`
+}
+
+type DownloadItem struct {
+	AppName string
+
+	Download Download
+}
+
+type DiscoverPage struct {
+	allData []JSONData
+
+	allItems []DownloadItem
+
+	filteredData []DownloadItem
+
+	list *widget.List
+
+	searchEntry *widget.Entry
+
+	sortSelect *widget.Select
+
+	statusLabel *widget.Label
+
+	window fyne.Window
+}
+
+func page_discover() fyne.CanvasObject {
+	dp := &DiscoverPage{
+		window: fyne.CurrentApp().Driver().AllWindows()[0], // Get the main window
+	}
+
+	// Load JSON files
+
+	dp.loadJSONFiles()
+
+	dp.processData()
+
+	dp.filteredData = dp.allItems
+
+	// Arama kutusu
+
+	dp.searchEntry = widget.NewEntry()
+
+	dp.searchEntry.SetPlaceHolder("🔍 Başlık ara...")
+
+	dp.searchEntry.OnChanged = func(content string) {
+
+		dp.filterAndSort()
+
+	}
+
+	// Sıralama seçeneği
+
+	dp.sortSelect = widget.NewSelect(
+
+		[]string{"A-Z", "Z-A", "Tarih (Yeni)", "Tarih (Eski)", "Boyut (Büyük)", "Boyut (Küçük)"},
+
+		func(value string) {
+
+			dp.filterAndSort()
+
+		},
+	)
+
+	// Durum etiketi
+
+	dp.statusLabel = widget.NewLabel("")
+
+	// Seçim yapıldıktan sonra çağrılmalı!
+
+	dp.sortSelect.SetSelected("A-Z")
+
+	dp.updateStatusLabel()
+
+	// Liste widget'ı
+
+	dp.list = widget.NewList(
+
+		func() int {
+
+			return len(dp.filteredData)
+
+		},
+
+		func() fyne.CanvasObject {
+
+			titleLabel := widget.NewLabel("")
+
+			titleLabel.TextStyle.Bold = true
+
+			appLabel := widget.NewLabel("")
+
+			appLabel.TextStyle.Italic = true
+
+			sizeLabel := widget.NewLabel("")
+
+			dateLabel := widget.NewLabel("")
+
+			downloadBtn := widget.NewButtonWithIcon("İndir", theme.DownloadIcon(), nil)
+
+			return container.NewVBox(
+
+				container.NewHBox(widget.NewIcon(theme.DocumentIcon()), titleLabel),
+
+				appLabel,
+
+				container.NewHBox(
+
+					widget.NewIcon(theme.StorageIcon()), sizeLabel,
+
+					widget.NewLabel(" | "),
+
+					widget.NewIcon(theme.HistoryIcon()), dateLabel,
+				),
+
+				downloadBtn,
+
+				widget.NewSeparator(),
+			)
+
+		},
+
+		func(i widget.ListItemID, o fyne.CanvasObject) {
+
+			if i >= len(dp.filteredData) {
+
+				return
+
+			}
+
+			item := dp.filteredData[i]
+
+			vbox := o.(*fyne.Container)
+
+			titleRow := vbox.Objects[0].(*fyne.Container)
+
+			titleLabel := titleRow.Objects[1].(*widget.Label)
+
+			appLabel := vbox.Objects[1].(*widget.Label)
+
+			infoRow := vbox.Objects[2].(*fyne.Container)
+
+			sizeLabel := infoRow.Objects[1].(*widget.Label)
+
+			dateLabel := infoRow.Objects[4].(*widget.Label)
+
+			downloadBtn := vbox.Objects[3].(*widget.Button)
+
+			titleLabel.SetText(item.Download.Title)
+
+			appLabel.SetText("📦 " + item.AppName)
+
+			sizeLabel.SetText(item.Download.FileSize)
+
+			if parsedDate, err := time.Parse("2006-01-02", item.Download.UploadDate); err == nil {
+
+				dateLabel.SetText(parsedDate.Format("02.01.2006"))
+
+			} else {
+
+				dateLabel.SetText(item.Download.UploadDate)
+
+			}
+
+			downloadBtn.OnTapped = func() {
+
+				dp.showDownloadDialog(item)
+
+			}
+
+		},
+	)
+
+	refreshBtn := widget.NewButtonWithIcon("Yenile", theme.ViewRefreshIcon(), func() {
+
+		dp.loadJSONFiles()
+
+		dp.processData()
+
+		dp.filterAndSort()
+
+	})
+
+	controls := container.NewBorder(
+
+		nil, nil, nil,
+
+		refreshBtn,
+
+		container.NewVBox(
+
+			dp.searchEntry,
+
+			container.NewHBox(
+
+				widget.NewLabel("Sıralama:"),
+
+				dp.sortSelect,
+
+				widget.NewLabel(" | "),
+
+				dp.statusLabel,
+			),
+		),
+	)
+
+	content := container.NewBorder(
+		controls,
+		nil, nil, nil,
+		container.NewScroll(dp.list),
+	)
+	return content
+}
+
+func (dp *DiscoverPage) loadJSONFiles() {
+
+	dp.allData = []JSONData{}
+
+	if _, err := os.Stat("sources"); os.IsNotExist(err) {
+
+		fmt.Println("sources/ dizini bulunamadı")
+
+		return
+
+	}
+
+	err := filepath.Walk("sources", func(path string, info os.FileInfo, err error) error {
+
+		if err != nil {
+
+			return err
+
+		}
+
+		if !strings.HasSuffix(strings.ToLower(info.Name()), ".json") {
+
+			return nil
+
+		}
+
+		data, err := ioutil.ReadFile(path)
+
+		if err != nil {
+
+			fmt.Printf("Dosya okuma hatası (%s): %v\n", path, err)
+
+			return nil
+
+		}
+
+		var jsonData JSONData
+
+		if err := json.Unmarshal(data, &jsonData); err != nil {
+
+			fmt.Printf("JSON parse hatası (%s): %v\n", path, err)
+
+			return nil
+
+		}
+
+		if jsonData.Name == "" {
+
+			jsonData.Name = strings.TrimSuffix(info.Name(), ".json")
+
+		}
+
+		dp.allData = append(dp.allData, jsonData)
+
+		return nil
+
+	})
+
+	if err != nil {
+
+		fmt.Printf("Dizin tarama hatası: %v\n", err)
+
+	}
+
+}
+
+func (dp *DiscoverPage) processData() {
+
+	dp.allItems = []DownloadItem{}
+
+	for _, data := range dp.allData {
+
+		for _, download := range data.Downloads {
+
+			dp.allItems = append(dp.allItems, DownloadItem{
+
+				AppName: data.Name,
+
+				Download: download,
+			})
+
+		}
+
+	}
+
+}
+
+func (dp *DiscoverPage) filterAndSort() {
+
+	if dp.statusLabel == nil || dp.list == nil {
+
+		return
+
+	}
+
+	searchText := strings.ToLower(dp.searchEntry.Text)
+
+	if searchText == "" {
+
+		dp.filteredData = dp.allItems
+
+	} else {
+
+		dp.filteredData = []DownloadItem{}
+
+		for _, item := range dp.allItems {
+
+			if strings.Contains(strings.ToLower(item.Download.Title), searchText) ||
+
+				strings.Contains(strings.ToLower(item.AppName), searchText) {
+
+				dp.filteredData = append(dp.filteredData, item)
+
+			}
+
+		}
+
+	}
+
+	sortType := dp.sortSelect.Selected
+
+	sort.Slice(dp.filteredData, func(i, j int) bool {
+
+		switch sortType {
+
+		case "A-Z":
+
+			return dp.filteredData[i].Download.Title < dp.filteredData[j].Download.Title
+
+		case "Z-A":
+
+			return dp.filteredData[i].Download.Title > dp.filteredData[j].Download.Title
+
+		default:
+
+			return dp.filteredData[i].Download.Title < dp.filteredData[j].Download.Title
+
+		}
+
+	})
+
+	dp.updateStatusLabel()
+
+	dp.list.Refresh()
+
+}
+
+func (dp *DiscoverPage) updateStatusLabel() {
+
+	total := len(dp.allItems)
+
+	filtered := len(dp.filteredData)
+
+	if filtered == total {
+
+		dp.statusLabel.SetText(fmt.Sprintf("📊 Toplam %d öğe", total))
+
+	} else {
+
+		dp.statusLabel.SetText(fmt.Sprintf("📊 %d/%d öğe gösteriliyor", filtered, total))
+
+	}
+
+}
+
+func (dp *DiscoverPage) showDownloadDialog(item DownloadItem) {
+
+	content := container.NewVBox()
+
+	titleLabel := widget.NewLabel(item.Download.Title)
+
+	titleLabel.TextStyle.Bold = true
+
+	titleLabel.Alignment = fyne.TextAlignCenter
+
+	content.Add(titleLabel)
+
+	content.Add(widget.NewSeparator())
+
+	infoGrid := container.NewGridWithColumns(2,
+
+		widget.NewLabel("Uygulama:"), widget.NewLabel(item.AppName),
+
+		widget.NewLabel("Dosya Boyutu:"), widget.NewLabel(item.Download.FileSize),
+
+		widget.NewLabel("Yükleme Tarihi:"), widget.NewLabel(item.Download.UploadDate),
+	)
+
+	content.Add(infoGrid)
+
+	content.Add(widget.NewSeparator())
+
+	if len(item.Download.URIs) > 0 { // Check if there are any URIs
+		content.Add(widget.NewLabel("İndirme Linki:"))
+		// Assuming there's only one URI for simplicity, you might want to handle multiple URIs
+		uri := item.Download.URIs[0] // Get the first URI
+		content.Add(widget.NewLabel(uri))
+	}
+
+	d := dialog.NewCustom("İndir", "Kapat", content, dp.window)
+
+	d.Resize(fyne.NewSize(400, 300))
+
+	d.Show()
+
+}
+
+func page_home() fyne.CanvasObject {
+
+	return container.NewVBox()
+
+}
+
+func main() {
+
+	myApp := app.New()
+
+	myWindow := myApp.NewWindow("crackware-app")
+
+	discoverContent := page_discover().(fyne.CanvasObject)
+
+	myWindow.Resize(fyne.NewSize(900, 700))
+
+	tabs := container.NewAppTabs(
+
+		container.NewTabItemWithIcon("Anasayfa", theme.HomeIcon(), page_home()),
+
+		container.NewTabItemWithIcon("Keşfet", theme.SearchIcon(), discoverContent),
+	)
+	tabs.SetTabLocation(container.TabLocationLeading)
+
+	myWindow.SetContent(tabs) // tabs is already a CanvasObject in v2
+
+	myWindow.ShowAndRun()
+
+}
